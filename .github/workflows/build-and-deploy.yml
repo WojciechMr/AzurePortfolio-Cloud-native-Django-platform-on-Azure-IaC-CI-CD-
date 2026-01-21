@@ -1,0 +1,53 @@
+name: Build & Deploy Backend (ACA)
+
+on:
+  push:
+    branches: ["main"]
+    paths:
+      - "api/**"
+      - ".github/workflows/build-and-deploy.yml"
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  ACR_NAME: acrazureportfoliodev
+  ACR_LOGIN_SERVER: acrazureportfoliodev.azurecr.io
+  IMAGE_NAME: backend
+  RESOURCE_GROUP: rg-AzurePortfolio-dev
+  CONTAINERAPP_NAME: ca-be-azureportfolio-dev
+
+jobs:
+  build_push_deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Azure Login (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Login to ACR
+        run: az acr login --name $ACR_NAME
+
+      - name: Build image
+        run: |
+          docker build -t $ACR_LOGIN_SERVER/$IMAGE_NAME:${{ github.sha }} ./api
+          docker tag $ACR_LOGIN_SERVER/$IMAGE_NAME:${{ github.sha }} $ACR_LOGIN_SERVER/$IMAGE_NAME:latest
+
+      - name: Push image
+        run: |
+          docker push $ACR_LOGIN_SERVER/$IMAGE_NAME:${{ github.sha }}
+          docker push $ACR_LOGIN_SERVER/$IMAGE_NAME:latest
+
+      - name: Deploy (update Container App image)
+        run: |
+          az containerapp update \
+            --name $CONTAINERAPP_NAME \
+            --resource-group $RESOURCE_GROUP \
+            --image $ACR_LOGIN_SERVER/$IMAGE_NAME:${{ github.sha }}
