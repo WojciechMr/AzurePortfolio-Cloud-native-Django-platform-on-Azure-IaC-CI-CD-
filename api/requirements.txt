@@ -1,0 +1,4 @@
+Django>=5.0,<6.0
+gunicorn>=21.2,<23.0
+whitenoise>=6.6,<7.0
+prometheus-client>=0.20,<1.0
