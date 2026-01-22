@@ -1,26 +1,44 @@
-name: Build & Deploy Backend (ACA)
+name: Build, Push & Terraform Deploy (dev)
 
 on:
   push:
     branches: ["main"]
     paths:
       - "api/**"
+      - "infra/**"
       - ".github/workflows/build-and-deploy.yml"
+      - ".github/workflows/terraform-plan.yml"
+
+  workflow_dispatch: {}
 
 permissions:
   id-token: write
   contents: read
 
+concurrency:
+  group: deploy-dev
+  cancel-in-progress: false
+
 env:
+  # ACR
   ACR_NAME: acrazureportfoliodev
   ACR_LOGIN_SERVER: acrazureportfoliodev.azurecr.io
   IMAGE_NAME: backend
-  RESOURCE_GROUP: rg-AzurePortfolio-dev
-  CONTAINERAPP_NAME: ca-be-azureportfolio-dev
 
 jobs:
-  build_push_deploy:
+  build_push_and_apply:
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: infra/envs/dev
+
+    # Force Terraform azurerm backend/provider to use OIDC
+    env:
+      ARM_USE_OIDC: "true"
+      ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+      ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+      ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -39,21 +57,26 @@ jobs:
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
       - name: Login to ACR
-        run: az acr login --name $ACR_NAME
+        run: az acr login --name ${{ env.ACR_NAME }}
+        working-directory: .
 
-      - name: Build image
+      - name: Build backend image
         run: |
-          docker build -t $ACR_LOGIN_SERVER/$IMAGE_NAME:${{ github.sha }} ./api
-          docker tag $ACR_LOGIN_SERVER/$IMAGE_NAME:${{ github.sha }} $ACR_LOGIN_SERVER/$IMAGE_NAME:latest
+          docker build -t ${{ env.ACR_LOGIN_SERVER }}/${{ env.IMAGE_NAME }}:${{ github.sha }} ./api
+          docker tag  ${{ env.ACR_LOGIN_SERVER }}/${{ env.IMAGE_NAME }}:${{ github.sha }} ${{ env.ACR_LOGIN_SERVER }}/${{ env.IMAGE_NAME }}:latest
+        working-directory: .
 
-      - name: Push image
+      - name: Push backend image
         run: |
-          docker push $ACR_LOGIN_SERVER/$IMAGE_NAME:${{ github.sha }}
-          docker push $ACR_LOGIN_SERVER/$IMAGE_NAME:latest
+          docker push ${{ env.ACR_LOGIN_SERVER }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
+          docker push ${{ env.ACR_LOGIN_SERVER }}/${{ env.IMAGE_NAME }}:latest
+        working-directory: .
 
-      - name: Deploy (update Container App image)
-        run: |
-          az containerapp update \
-            --name $CONTAINERAPP_NAME \
-            --resource-group $RESOURCE_GROUP \
-            --image $ACR_LOGIN_SERVER/$IMAGE_NAME:${{ github.sha }}
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+
+      - name: Terraform Init
+        run: terraform init -reconfigure
+
+      - name: Terraform Apply (deploy pinned image SHA)
+        run: terraform apply -auto-approve -var="backend_image=${{ env.ACR_LOGIN_SERVER }}/${{ env.IMAGE_NAME }}:${{ github.sha }}"
