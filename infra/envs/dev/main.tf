@@ -38,6 +38,22 @@ resource "azurerm_subnet" "ops_private" {
   address_prefixes     = ["10.10.3.0/24"]
 }
 
+resource "azurerm_subnet" "aca_infra" {
+  name                 = "snet-aca-infra"
+  resource_group_name  = azurerm_resource_group.main.name
+  virtual_network_name = azurerm_virtual_network.main.name
+  address_prefixes     = ["10.10.4.0/24"]
+
+  delegation {
+    name = "aca-delegation"
+    service_delegation {
+      name    = "Microsoft.App/environments"
+      actions = ["Microsoft.Network/virtualNetworks/subnets/action"]
+    }
+  }
+}
+
+
 
 
 

@@ -38,3 +38,8 @@ output "container_app_environment_name" {
 output "backend_fqdn" {
   value = azurerm_container_app.backend.ingress[0].fqdn
 }
+
+
+output "aca_infra_subnet_id" {
+  value = azurerm_subnet.aca_infra.id
+}
